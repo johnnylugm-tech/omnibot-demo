@@ -10,14 +10,14 @@ import publicShare from './routes/publicShare';
 
 const app = new Hono<AppEnv>();
 
-// L-3：每 1% 機率背景 GC 過期 sessions（避免無限堆積）
+// L-3：每 5 分鐘 1 次背景 GC 過期 sessions（避免無限堆積）
 let lastGc = 0;
+const GC_INTERVAL_MS = 5 * 60_000;
 function maybeGc() {
   const now = Date.now();
-  if (now - lastGc > 60_000 && Math.random() < 0.01) {
-    lastGc = now;
-    void gcExpiredSessions().catch(() => {});
-  }
+  if (now - lastGc < GC_INTERVAL_MS) return;
+  lastGc = now;
+  void gcExpiredSessions().catch(() => {});
 }
 app.use('*', async (_c, next) => {
   maybeGc();

@@ -177,8 +177,8 @@ export default function EditorClient({ noteId: noteIdProp }: { noteId?: string }
       setStatus('error');
     } finally {
       if (myGen === saveGenRef.current) saveInFlightRef.current = false;
-      // 若期間又有新排程，立即觸發，避免「最後一筆編輯」丟失
-      if (saveGenRef.current > myGen) void doSave();
+      // 若期間又有新排程，yield to event loop 避免同步遞迴風暴
+      if (saveGenRef.current > myGen) setTimeout(doSave, 0);
     }
   }
 

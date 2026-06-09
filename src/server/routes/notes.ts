@@ -114,15 +114,20 @@ const PatchBody = z.object({
 });
 
 // PATCH /api/notes/:id — 自動保存 / 編輯
-// 支援 If-Match: <updatedAt ISO> precondition，預防 concurrent write 覆蓋
+// 支援 If-Match: <updatedAt epoch ms> precondition，預防 concurrent write 覆蓋
+// 用 epoch ms 而非 ISO 字串：避免 PG timestamp 來回序列化丟失精度
 router.patch('/:id', async (c) => {
   const user = c.get('user')!;
   const id = c.req.param('id');
   const cur = await loadOwnedNote(id, user.id);
   const body = PatchBody.parse(await c.req.json());
   const ifMatch = c.req.header('if-match');
-  if (ifMatch && ifMatch !== cur.updatedAt.toISOString()) {
-    throw httpErrors.conflict('Note was modified by another request', 'etag_mismatch');
+  if (ifMatch !== undefined) {
+    const expectedMs = Number.parseInt(ifMatch, 10);
+    const actualMs = cur.updatedAt.getTime();
+    if (!Number.isFinite(expectedMs) || expectedMs !== actualMs) {
+      throw httpErrors.conflict('Note was modified by another request', 'etag_mismatch');
+    }
   }
   const updates: Record<string, unknown> = { updatedAt: new Date() };
   if (body.title !== undefined) updates.title = body.title;

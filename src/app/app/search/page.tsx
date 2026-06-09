@@ -90,12 +90,12 @@ function snippet(content: string, q: string): string {
 
 function highlight(text: string, q: string) {
   if (!q) return text;
-  // 用 non-global regex + matchAll 避免 stateful lastIndex bug
-  const re = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'i');
-  const lcQ = q.toLowerCase();
+  // 用 matchAll 取代 split(global regex)：split 的 global regex 在 React strict mode 下
+  // 跨 render 會保留 lastIndex 狀態，導致 <mark> 渲染不穩
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const out: ReactNode[] = [];
   let last = 0;
-  for (const m of text.matchAll(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'))) {
+  for (const m of text.matchAll(new RegExp(escaped, 'gi'))) {
     const idx = m.index ?? 0;
     if (idx > last) out.push(<span key={last}>{text.slice(last, idx)}</span>);
     out.push(
@@ -106,7 +106,5 @@ function highlight(text: string, q: string) {
     last = idx + m[0].length;
   }
   if (last < text.length) out.push(<span key={last}>{text.slice(last)}</span>);
-  void re; // 保留變數供日後調整
-  void lcQ;
   return out;
 }

@@ -52,10 +52,8 @@ export function renderMarkdown(input: string): string {
     allowedTags: ALLOWED_TAGS,
     allowedAttributes: ALLOWED_ATTRS,
     allowedSchemes: ['http', 'https', 'mailto'],
-    // 阻斷 javascript: / data: / vbscript: 對所有 tag
-    allowedSchemesByTag: {
-      img: ['http', 'https'],
-    },
+    // 全域 allowedSchemes 已阻斷 javascript: / data: / vbscript:
+    // 不需 allowedSchemesByTag — 維持單一來源避免未來維護漂移
     transformTags: {
       a: (tagName, attribs) => {
         const href = attribs.href ?? '';
