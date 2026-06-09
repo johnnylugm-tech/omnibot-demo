@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: omnibot-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: omnibot
+      POSTGRES_PASSWORD: omnibot
+      POSTGRES_DB: omnibot
+    ports:
+      - "5432:5432"
+    volumes:
+      - omnibot_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omnibot -d omnibot"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  omnibot_pgdata:
