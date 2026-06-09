@@ -52,9 +52,9 @@ export function renderMarkdown(input: string): string {
     allowedTags: ALLOWED_TAGS,
     allowedAttributes: ALLOWED_ATTRS,
     allowedSchemes: ['http', 'https', 'mailto'],
-    // 阻斷 javascript: / data: / vbscript:
+    // 阻斷 javascript: / data: / vbscript: 對所有 tag
     allowedSchemesByTag: {
-      img: ['http', 'https', 'data'],
+      img: ['http', 'https'],
     },
     transformTags: {
       a: (tagName, attribs) => {

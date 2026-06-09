@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/clientApi';
@@ -90,15 +90,23 @@ function snippet(content: string, q: string): string {
 
 function highlight(text: string, q: string) {
   if (!q) return text;
-  const re = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'ig');
-  const parts = text.split(re);
-  return parts.map((p, i) =>
-    re.test(p) && p.toLowerCase() === q.toLowerCase() ? (
-      <mark key={i} className="bg-yellow-100 text-ink-900 rounded px-0.5">
-        {p}
-      </mark>
-    ) : (
-      <span key={i}>{p}</span>
-    ),
-  );
+  // 用 non-global regex + matchAll 避免 stateful lastIndex bug
+  const re = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'i');
+  const lcQ = q.toLowerCase();
+  const out: ReactNode[] = [];
+  let last = 0;
+  for (const m of text.matchAll(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'))) {
+    const idx = m.index ?? 0;
+    if (idx > last) out.push(<span key={last}>{text.slice(last, idx)}</span>);
+    out.push(
+      <mark key={idx} className="bg-yellow-100 text-ink-900 rounded px-0.5">
+        {m[0]}
+      </mark>,
+    );
+    last = idx + m[0].length;
+  }
+  if (last < text.length) out.push(<span key={last}>{text.slice(last)}</span>);
+  void re; // 保留變數供日後調整
+  void lcQ;
+  return out;
 }

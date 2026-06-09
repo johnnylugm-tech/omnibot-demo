@@ -2,6 +2,10 @@ import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import * as schema from './schema';
 
+// 沒有 DATABASE_URL 在 production 直接 crash（防 L-7：無聲 fallback 到 localhost）
+if (!process.env.DATABASE_URL && process.env.NODE_ENV === 'production') {
+  throw new Error('DATABASE_URL is required in production');
+}
 const connectionString =
   process.env.DATABASE_URL ?? 'postgres://omnibot:omnibot@localhost:5432/omnibot';
 

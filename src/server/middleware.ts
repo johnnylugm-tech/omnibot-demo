@@ -38,12 +38,14 @@ export const requireAuth = createMiddleware<AppEnv>(async (c, next) => {
 });
 
 // Same-origin 檢查 (defense-in-depth on top of SameSite=Lax)
-// 允許沒有 Origin header（部分 server-to-server / 直接 fetch）但若帶了必須 match
+// 強制瀏覽器送 Origin；非 GET 沒帶直接 403
 export const sameOrigin = createMiddleware<AppEnv>(async (c, next) => {
   const method = c.req.method.toUpperCase();
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return next();
   const origin = c.req.header('origin');
-  if (!origin) return next(); // 瀏覽器都會送；放行非瀏覽器 client
+  if (!origin) {
+    return c.json({ error: { code: 'forbidden', message: 'Origin required' } }, 403);
+  }
   const allowed = new URL(env.APP_ORIGIN).origin;
   if (origin !== allowed) {
     return c.json({ error: { code: 'forbidden', message: 'Cross-origin denied' } }, 403);

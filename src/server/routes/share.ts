@@ -34,22 +34,31 @@ const CreateBody = z.object({
   noteId: z.string().uuid(),
 });
 
-// POST /api/share — 創建 share link
+// POST /api/share — 創建 share link（含 7 天自動過期）
+const SHARE_TTL_DAYS = 7;
+
 router.post('/', async (c) => {
   const user = c.get('user')!;
-  const body = CreateBody.parse(await c.req.json().catch(() => ({})));
-  // 確認 note 屬於自己
+  const body = CreateBody.parse(await c.req.json());
+  // 確認 note 存在、屬於自己、未軟刪除
   const note = await db
     .select({ id: notes.id })
     .from(notes)
-    .where(and(eq(notes.id, body.noteId), eq(notes.userId, user.id)))
+    .where(
+      and(
+        eq(notes.id, body.noteId),
+        eq(notes.userId, user.id),
+        isNull(notes.deletedAt),
+      ),
+    )
     .limit(1);
   if (!note[0]) throw httpErrors.notFound('Note not found');
 
   const { token, tokenHash } = generateShareToken();
+  const expiresAt = new Date(Date.now() + SHARE_TTL_DAYS * 24 * 60 * 60 * 1000);
   const [row] = await db
     .insert(shareLinks)
-    .values({ noteId: body.noteId, tokenHash })
+    .values({ noteId: body.noteId, tokenHash, expiresAt })
     .returning();
   if (!row) throw httpErrors.server('Failed');
   // URL 內的 token 是明文；DB 只存 hash（即便 DB 洩漏也無法構造有效 URL）

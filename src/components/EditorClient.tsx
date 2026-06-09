@@ -10,10 +10,10 @@ const TAG_COLORS: TagColor[] = ['gray', 'red', 'orange', 'amber', 'green', 'teal
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
-export default function EditorClient() {
+export default function EditorClient({ noteId: noteIdProp }: { noteId?: string } = {}) {
   const router = useRouter();
   const params = useParams<{ id: string }>();
-  const id = params.id;
+  const id = noteIdProp ?? params.id;
 
   const [note, setNote] = useState<Note | null>(null);
   const [title, setTitle] = useState('');
@@ -128,6 +128,9 @@ export default function EditorClient() {
   }, [note]);
 
   // 統一 autosave：title 變更與 CM content 變更都用同一個 debounce
+  // 用 monotonic save generation 防止 stale response 覆蓋 lastSavedRef
+  const saveGenRef = useRef(0);
+  const saveInFlightRef = useRef(false);
   const scheduleSaveRef = useRef<(() => void) | null>(null);
 
   const scheduleSave = useCallback(() => {
@@ -150,23 +153,32 @@ export default function EditorClient() {
   }, [title]);
 
   async function doSave() {
+    if (saveInFlightRef.current) return; // 序列化：上一個 PATCH 還在 flight
     const cur = noteRef.current;
     const t = titleRef.current;
     const c = contentRef.current;
     if (!cur) return;
     if (c === lastSavedRef.current.content && t === lastSavedRef.current.title) return;
+    saveInFlightRef.current = true;
+    const myGen = ++saveGenRef.current;
     setStatus('saving');
     try {
       const r = await api<{ note: Note }>(`/api/notes/${id}`, {
         method: 'PATCH',
         json: { title: t, content: c },
       });
+      if (myGen !== saveGenRef.current) return; // 已被更新的 save 取代
       setNote(r.note);
       setStatus('saved');
       lastSavedRef.current = { title: t, content: c };
       setTimeout(() => setStatus('idle'), 1500);
     } catch {
+      if (myGen !== saveGenRef.current) return;
       setStatus('error');
+    } finally {
+      if (myGen === saveGenRef.current) saveInFlightRef.current = false;
+      // 若期間又有新排程，立即觸發，避免「最後一筆編輯」丟失
+      if (saveGenRef.current > myGen) void doSave();
     }
   }
 

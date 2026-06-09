@@ -21,6 +21,13 @@ export function verifyPassword(plain: string, hash: string): Promise<boolean> {
   return bcrypt.compare(plain, hash);
 }
 
+// 固定假 hash：用於 timing oracle 防護（讓「使用者不存在」與「密碼錯」耗時一致）
+const DUMMY_BCRYPT_HASH = bcrypt.hashSync('dummy-string-just-for-timing', BCRYPT_COST);
+export function timingSafeNoUser() {
+  // 拋回 result 而非 boolean：呼叫端必須 handle bcrypt 內部 error
+  return bcrypt.compareSync('x', DUMMY_BCRYPT_HASH);
+}
+
 function newToken(): string {
   return randomBytes(32).toString('base64url');
 }

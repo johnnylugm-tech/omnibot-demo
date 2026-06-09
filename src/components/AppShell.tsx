@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '@/lib/clientApi';
 import { TAG_COLOR_HEX, type TagColor } from '@/lib/types';
 
@@ -17,26 +17,6 @@ export function AppShell({ user, children }: { user: User; children: React.React
   const [q, setQ] = useState('');
   const [creating, setCreating] = useState(false);
 
-  // 快捷鍵：⌘K 搜尋、⌘N 新增
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      const meta = e.metaKey || e.ctrlKey;
-      if (meta && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        const el = document.getElementById('app-search') as HTMLInputElement | null;
-        el?.focus();
-      } else if (meta && e.key.toLowerCase() === 'n') {
-        e.preventDefault();
-        void newNote();
-      } else if (meta && e.key.toLowerCase() === 's') {
-        // ⌘S 由 editor 自己攔
-      }
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const newNote = useCallback(async () => {
     if (creating) return;
     setCreating(true);
@@ -47,6 +27,31 @@ export function AppShell({ user, children }: { user: User; children: React.React
       setCreating(false);
     }
   }, [creating, router]);
+
+  // 用 ref 讓 keyboard listener 永遠呼叫最新 newNote — 避免連按 ⌘N 觸發舊 closure（L-5）
+  const newNoteRef = useRef(newNote);
+  useEffect(() => {
+    newNoteRef.current = newNote;
+  }, [newNote]);
+
+  // 快捷鍵：⌘K 搜尋、⌘N 新增
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const meta = e.metaKey || e.ctrlKey;
+      if (meta && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        const el = document.getElementById('app-search') as HTMLInputElement | null;
+        el?.focus();
+      } else if (meta && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        void newNoteRef.current();
+      } else if (meta && e.key.toLowerCase() === 's') {
+        // ⌘S 由 editor 自己攔
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   async function signOut() {
     await api('/api/auth/signout', { method: 'POST' });

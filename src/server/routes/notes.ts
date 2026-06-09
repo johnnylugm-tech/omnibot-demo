@@ -9,8 +9,21 @@ import { requireAuth, type AppEnv } from '../middleware';
 const router = new Hono<AppEnv>();
 router.use('*', requireAuth);
 
-// 統一取出 note 並驗 owner；不存在或非 owner 一律 404（不洩漏存在性）
+// 統一取出 note 並驗 owner；不存在、非 owner 或已軟刪除一律 404（不洩漏存在性）
 async function loadOwnedNote(noteId: string, userId: string) {
+  const rows = await db
+    .select()
+    .from(notes)
+    .where(
+      and(eq(notes.id, noteId), eq(notes.userId, userId), isNull(notes.deletedAt)),
+    )
+    .limit(1);
+  if (!rows[0]) throw httpErrors.notFound('Note not found');
+  return rows[0];
+}
+
+// 同上但**包含**已軟刪除 — 給 restore / 歷史查詢使用
+async function loadOwnedNoteIncludeDeleted(noteId: string, userId: string) {
   const rows = await db
     .select()
     .from(notes)
@@ -21,10 +34,11 @@ async function loadOwnedNote(noteId: string, userId: string) {
 }
 
 // 列表：含分區置頂
-// GET /api/notes?includeDeleted=0|1&q=...
+// GET /api/notes?includeDeleted=0|1&include=tags&q=...
 router.get('/', async (c) => {
   const user = c.get('user')!;
   const includeDeleted = c.req.query('includeDeleted') === '1';
+  const includeTags = c.req.query('include') === 'tags';
   const q = c.req.query('q')?.trim() ?? '';
 
   const baseWhere = includeDeleted
@@ -34,11 +48,9 @@ router.get('/', async (c) => {
   let where = baseWhere;
   if (q) {
     // pg_trgm: 用 ILIKE + similarity；§8.2 T-7
-    const term = `%${q.replace(/[%_]/g, (m) => '\\' + m)}%`;
-    where = and(
-      baseWhere,
-      or(ilike(notes.title, term), ilike(notes.content, term))!,
-    )!;
+    // 用 raw sql 加 ESCAPE 子句，pg 才會把 backslash 視為 escape char
+    const term = `%${q.replace(/[%_\\]/g, (m) => '\\' + m)}%`;
+    where = sql`${baseWhere} AND (${notes.title} ILIKE ${term} ESCAPE '\\' OR ${notes.content} ILIKE ${term} ESCAPE '\\')`;
   }
 
   const rows = await db
@@ -48,7 +60,28 @@ router.get('/', async (c) => {
     .orderBy(desc(notes.isPinned), desc(notes.updatedAt))
     .limit(200);
 
-  return c.json({ notes: rows });
+  // 一次批次撈 tags（M-7：避免 N+1）
+  let noteTagsMap: Record<string, { id: string; name: string; color: string }[]> = {};
+  if (includeTags && rows.length) {
+    const tagRows = await db
+      .select({
+        noteId: noteTags.noteId,
+        id: tags.id,
+        name: tags.name,
+        color: tags.color,
+      })
+      .from(noteTags)
+      .innerJoin(tags, eq(noteTags.tagId, tags.id))
+      .where(inArray(noteTags.noteId, rows.map((r) => r.id)));
+    for (const tr of tagRows) {
+      (noteTagsMap[tr.noteId] ??= []).push({ id: tr.id, name: tr.name, color: tr.color });
+    }
+  }
+
+  return c.json({
+    notes: rows,
+    ...(includeTags ? { tagsByNote: noteTagsMap } : {}),
+  });
 });
 
 // POST /api/notes — 創建並回傳（含 id 以便前端跳轉）
@@ -81,11 +114,16 @@ const PatchBody = z.object({
 });
 
 // PATCH /api/notes/:id — 自動保存 / 編輯
+// 支援 If-Match: <updatedAt ISO> precondition，預防 concurrent write 覆蓋
 router.patch('/:id', async (c) => {
   const user = c.get('user')!;
   const id = c.req.param('id');
-  await loadOwnedNote(id, user.id); // 404 if not owner
-  const body = PatchBody.parse(await c.req.json().catch(() => ({})));
+  const cur = await loadOwnedNote(id, user.id);
+  const body = PatchBody.parse(await c.req.json());
+  const ifMatch = c.req.header('if-match');
+  if (ifMatch && ifMatch !== cur.updatedAt.toISOString()) {
+    throw httpErrors.conflict('Note was modified by another request', 'etag_mismatch');
+  }
   const updates: Record<string, unknown> = { updatedAt: new Date() };
   if (body.title !== undefined) updates.title = body.title;
   if (body.content !== undefined) updates.content = body.content;
@@ -114,7 +152,7 @@ router.delete('/:id', async (c) => {
 router.post('/:id/restore', async (c) => {
   const user = c.get('user')!;
   const id = c.req.param('id');
-  await loadOwnedNote(id, user.id);
+  await loadOwnedNoteIncludeDeleted(id, user.id);
   await db
     .update(notes)
     .set({ deletedAt: null, updatedAt: new Date() })
@@ -150,7 +188,7 @@ router.put('/:id/tags', async (c) => {
   await loadOwnedNote(id, user.id);
   const body = z
     .object({ tagIds: z.array(z.string().uuid()).max(50) })
-    .parse(await c.req.json().catch(() => ({})));
+    .parse(await c.req.json());
   // 確認所有 tagIds 都屬於該 user
   if (body.tagIds.length) {
     const owned = await db

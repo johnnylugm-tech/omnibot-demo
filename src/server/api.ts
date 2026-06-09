@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { authContext, sameOrigin, type AppEnv } from './middleware';
+import { gcExpiredSessions } from '@/lib/auth';
 import auth from './routes/auth';
 import notes from './routes/notes';
 import tags from './routes/tags';
@@ -8,6 +9,20 @@ import share from './routes/share';
 import publicShare from './routes/publicShare';
 
 const app = new Hono<AppEnv>();
+
+// L-3：每 1% 機率背景 GC 過期 sessions（避免無限堆積）
+let lastGc = 0;
+function maybeGc() {
+  const now = Date.now();
+  if (now - lastGc > 60_000 && Math.random() < 0.01) {
+    lastGc = now;
+    void gcExpiredSessions().catch(() => {});
+  }
+}
+app.use('*', async (_c, next) => {
+  maybeGc();
+  await next();
+});
 
 // 全域錯誤處理
 app.onError((err, c) => {

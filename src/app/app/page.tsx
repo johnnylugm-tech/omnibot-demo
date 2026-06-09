@@ -16,8 +16,16 @@ export default function DashboardPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await api<{ notes: Note[]; tags?: Tag[] }>('/api/notes');
+      const r = await api<{
+        notes: Note[];
+        tagsByNote?: Record<string, { id: string; name: string; color: string }[]>;
+      }>('/api/notes?include=tags');
       setNotes(r.notes);
+      const normalized: Record<string, Tag[]> = {};
+      for (const [k, v] of Object.entries(r.tagsByNote ?? {})) {
+        normalized[k] = v as Tag[];
+      }
+      setNoteTags(normalized);
       const tr = await api<{ tags: Tag[] }>('/api/tags');
       setTags(tr.tags);
     } finally {
@@ -29,25 +37,8 @@ export default function DashboardPage() {
     void load();
   }, [load]);
 
-  // 載入每則 note 的 tags
+  // noteTags 已被 load() 一次填好（M-7 修正：消除 N+1）
   const [noteTags, setNoteTags] = useState<Record<string, Tag[]>>({});
-  useEffect(() => {
-    if (!notes.length) return;
-    let cancelled = false;
-    (async () => {
-      const out: Record<string, Tag[]> = {};
-      await Promise.all(
-        notes.map(async (n) => {
-          const r = await api<{ tags: Tag[] }>(`/api/notes/${n.id}`);
-          out[n.id] = r.tags;
-        }),
-      );
-      if (!cancelled) setNoteTags(out);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [notes]);
 
   const filtered = useMemo(() => {
     if (!activeTag) return notes;
@@ -67,8 +58,15 @@ export default function DashboardPage() {
 
   async function del(n: Note) {
     if (!confirm(`確定刪除「${n.title || '（無標題）'}」？`)) return;
-    await api(`/api/notes/${n.id}`, { method: 'DELETE' });
+    // L-6：樂觀更新前先備份，失敗時回滾
+    const prev = notes;
     setNotes((ns) => ns.filter((x) => x.id !== n.id));
+    try {
+      await api(`/api/notes/${n.id}`, { method: 'DELETE' });
+    } catch {
+      setNotes(prev);
+      alert('刪除失敗，請稍後再試。');
+    }
   }
 
   async function newNote() {

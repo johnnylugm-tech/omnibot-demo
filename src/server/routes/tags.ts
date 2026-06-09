@@ -27,7 +27,7 @@ const CreateBody = z.object({
 
 router.post('/', async (c) => {
   const user = c.get('user')!;
-  const body = CreateBody.parse(await c.req.json().catch(() => ({})));
+  const body = CreateBody.parse(await c.req.json());
   try {
     const [row] = await db
       .insert(tags)
@@ -56,7 +56,7 @@ const PatchBody = z.object({
 router.patch('/:id', async (c) => {
   const user = c.get('user')!;
   const id = c.req.param('id');
-  const body = PatchBody.parse(await c.req.json().catch(() => ({})));
+  const body = PatchBody.parse(await c.req.json());
   const updates: Record<string, unknown> = {};
   if (body.name !== undefined) updates.name = body.name;
   if (body.color !== undefined) updates.color = body.color;

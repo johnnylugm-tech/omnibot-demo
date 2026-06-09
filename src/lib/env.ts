@@ -1,5 +1,10 @@
 // 中央化的環境變數讀取 + 校驗；lazy evaluate 避免 Next 14 dev 模組評估期 fail-fast
+// 僅供 server 使用 — 不可被 client component import
 import { z } from 'zod';
+
+if (typeof process === 'undefined' || !process.env) {
+  throw new Error('env.ts must only be imported on the server');
+}
 
 const EnvSchema = z.object({
   DATABASE_URL: z.string().url(),
